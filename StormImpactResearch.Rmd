@@ -1,0 +1,88 @@
+---
+title: "Storm Impact Research - Assignment 2"
+output: html_document
+---
+
+## Synopsis
+To answer the question: which natural events cause the greatest damage to property and health, this project explored storm database from US National Oceanic and Atmospheric Administration, and find out a list of event type of storms and other severe weather evenets result in health and property damages.
+
+
+## Data Processing
+1. Prepare the tool
+```{r }
+library(tidyverse)
+```
+
+2. To download Storm Data from the site, read and transform. All types of event started recording since 1996, we removed the data before year 1996. And select only the fields that related to the research.
+```{r }
+Origin_dir <- getwd()
+if(!file.exists('repdata_data_stormdata.csv.bz2')){
+  download.file('https://d396qusza40orc.cloudfront.net/repdata%2Fdata%2FStormData.csv.bz2', 'repdata_data_stormdata.csv.bz2')
+}
+
+stormDataraw <- read.csv(bzfile('repdata_data_stormdata.csv.bz2')) 
+stormData <- stormDataraw %>% select(EVTYPE, BGN_DATE, FATALITIES, INJURIES, PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP)  %>%
+                          mutate(BGN_YEAR = as.numeric(format(as.Date(BGN_DATE, format = "%m/%d/%Y"), "%Y"))) %>% 
+                          filter(BGN_YEAR >= 1996)
+stormData$EVTYPE <- str_trim(toupper(stormData$EVTYPE))
+
+str(stormData)
+```
+
+3. Notice that the fields PROPDMGEXP and CROPDMGEXP are the exponent values for PROPDMG and CROPDMG, write a fuction to get total value for CROPs and PROPs damage. 
+   a. B or b = Billion, M or m = Million, K or k = Thousand, H or h = Hundred.
+   b. The numbers from one to ten represent multipler of 10 plus single digits, if DMG = 50 and DMGEXP = 3, then value = 503.
+   c. Ignore other symbles. 
+  Here is the function:
+```{r}
+EXP <- function(PROPDMG, PROPDMGEXP, CROPDMG, CROPDMGEXP) {
+  PROPDMGEXP <- toupper(PROPDMGEXP)
+  CROPDMGEXP <- toupper(CROPDMGEXP)
+  if (grepl("B", PROPDMGEXP) == TRUE) { y <- PROPDMG * 10^9}
+  else if (grepl("M", PROPDMGEXP) == TRUE) { y <- PROPDMG * 10^6}
+  else if (grepl("K", PROPDMGEXP) == TRUE) { y <- PROPDMG * 10^3}
+  else if (grepl("H", PROPDMGEXP) == TRUE) { y <- PROPDMG * 10^2}
+  else if (grepl("[0123456789]", PROPDMGEXP) == TRUE) { y <- PROPDMG *10 + as.numeric(PROPDMGEXP)}
+  else  { y <- PROPDMG}
+  
+  if (grepl("B", CROPDMGEXP) == TRUE) { z <- 10^9*CROPDMG}
+  else if (grepl("M", CROPDMGEXP) == TRUE) { z <- 10^6*CROPDMG}
+  else if (grepl("K", CROPDMGEXP) == TRUE) { z <- 10^3*CROPDMG}
+  else if (grepl("H", CROPDMGEXP) == TRUE) { z <- 10^2*CROPDMG}
+  else if (grepl("[0123456789]", CROPDMGEXP) == TRUE) { z <- 10*CROPDMG+as.numeric(CROPDMGEXP)}
+  else  { z <- CROPDMG}
+  
+  return(y+z)
+}
+```
+4. Now calculate total damage and total health impact.
+```{r}
+stormData$totalDMG <- mapply(EXP, stormData$PROPDMG, stormData$PROPDMGEXP, stormData$CROPDMG, stormData$CROPDMGEXP) 
+EVdmg <- stormData %>% group_by(EVTYPE) %>% summarise(DMG = sum(totalDMG)) 
+
+EVhealth <- stormData %>% group_by(EVTYPE) %>% summarise(healthImpact = sum(FATALITIES) + sum(INJURIES))
+head(EVdmg)
+head(EVhealth)
+```
+
+## Results
+1. Rank the top 10 Event type which caused most damage on property and crop.
+```{r}
+topEVdmg <- EVdmg[order(EVdmg$DMG, decreasing = TRUE),] [1:10,]
+topEVdmg
+ggplot(topEVdmg, aes(x = reorder(EVTYPE, DMG), y = DMG))+ 
+  geom_bar(stat = 'identity',  color= "white", fill ="lightblue", width = 0.7)+
+  labs(title = "Top Event Type by damage", y = "Damage ( Property + Corp)", x = "Event Type")+
+  coord_flip() 
+```
+
+2. Rank the top 10 Event type which impacted health including Fatalities and Injuries.
+```{r}
+topEVhealth <- EVhealth[order(EVhealth$healthImpact, decreasing = TRUE), ][1:10, ]
+topEVhealth                                                        
+ggplot(topEVhealth, aes(x = reorder(EVTYPE, healthImpact), y = healthImpact))+ 
+  geom_bar(stat = 'identity',  color= "white", fill ="yellow", width = 0.7)+
+  labs(title = "Top Event Type by Health Impact", y = "Impact ( Fatalities + Injuries)", x = "Event Type")+
+  coord_flip() 
+```
+
